@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+<title>Dodge the Blocks PRO</title>
+<style>
+  :root {
+    --bg:#0e0f12; --panel:#171a21; --accent:#00e689; --danger:#ff4d4d; --text:#e9eef5; --muted:#9aa4b2; --gold:#ffc857;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family:system-ui, Segoe UI, Roboto, sans-serif; }
+  #wrap { position:fixed; inset:0; display:grid; grid-template-rows:1fr auto; }
+  #hud {
+    position:fixed; top:0; left:0; right:0; display:flex; gap:10px; align-items:center; justify-content:space-between;
+    padding:12px clamp(10px, 3vw, 18px); background:linear-gradient(180deg, rgba(0,0,0,.35), transparent);
+    font-weight:600; user-select:none; z-index:5;
+  }
+  #hud .pill { background:rgba(255,255,255,.06); padding:8px 12px; border-radius:999px; display:flex; gap:10px; align-items:center; }
+  #hud .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  #hud .btn {
+    border:0; border-radius:10px; padding:8px 12px; background:var(--panel); color:var(--text); cursor:pointer; font-weight:700;
+  }
+  #hud .btn:active { transform:translateY(1px); }
+  #canvas { width:100%; height:100%; display:block; }
+  #overlay {
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:10;
+    background:radial-gradient(1200px 800px at 50% -200px, rgba(255,255,255,.06), transparent 60%);
+  }
+  .card {
+    width:min(520px, 92vw); background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:16px; padding:20px;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+  }
+  .card h1, .card h2 { margin:8px 0 12px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .row > * { flex:1 1 auto; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+  .primary { background:var(--accent); color:#052; font-weight:900; border:0; border-radius:12px; padding:12px 16px; cursor:pointer; }
+  .ghost { background:transparent; border:1px solid rgba(255,255,255,.2); color:var(--text); border-radius:12px; padding:12px 16px; cursor:pointer; }
+  .note { color:var(--muted); font-size:14px; }
+  #touchCtrl {
+    position:fixed; inset:auto 0 0 0; display:grid; grid-template-columns:1fr 1fr; gap:8px;
+    padding:10px clamp(10px, 3vw, 18px); z-index:6; pointer-events:none;
+  }
+  .tbtn {
+    pointer-events:auto; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:var(--text);
+    font-weight:800; border-radius:14px; padding:14px; text-align:center; user-select:none;
+  }
+  .tbtn:active { transform:scale(.98); background:rgba(255,255,255,.1); }
+  @media (min-width:800px) {
+    #touchCtrl { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="canvas"></canvas>
+
+  <div id="hud">
+    <div class="pill"><span>النقاط:</span><span id="score">0</span></div>
+    <div class="pill"><span>زمن:</span><span id="time">0.0</span>s</div>
+    <div class="pill">
+      <span class="dot" id="shieldDot" title="Shield"></span><span>درع</span>
+      <span style="width:8px;"></span>
+      <span class="dot" id="slowDot" title="SlowMo" style="background:var(--gold)"></span><span>تبطيء</span>
+    </div>
+    <div class="row" style="gap:8px; justify-content:flex-end; flex:0 0 auto;">
+      <button class="btn" id="pauseBtn">إيقاف</button>
+      <button class="btn" id="soundBtn">صوت: تشغيل</button>
+    </div>
+  </div>
+
+  <div id="touchCtrl">
+    <div class="tbtn" id="leftBtn">◀ حرك يسار</div>
+    <div class="tbtn" id="rightBtn">حرك يمين ▶</div>
+  </div>
+</div>
+
+<div id="overlay">
+  <div class="card" id="menu">
+    <h1>🎮 Dodge the Blocks PRO</h1>
+    <div class="note">تجنب العقبات، اجمع النقاط، وفعّل الباور-أب. مصمم للموبايل والكمبيوتر.</div>
+    <h2>التحكم</h2>
+    <ul>
+      <li>أسهم الكيبورد أو السحب يمين/يسار</li>
+      <li>أزرار لمس سفلية على الموبايل</li>
+    </ul>
+    <div class="row">
+      <div class="pill">أعلى نتيجة: <strong id="bestScore">0</strong></div>
+      <div class="pill">أفضل زمن: <strong id="bestTime">0.0</strong>s</div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="startBtn">ابدأ اللعب</button>
+      <button class="ghost" id="resetBest">مسح أعلى النتائج</button>
+    </div>
+    <div class="note" style="margin-top:10px">نصائح: اجمع الدرع للحماية مرة واحدة، وSlowMo لتبطئة العقبات مؤقتًا.</div>
+  </div>
+
+  <div class="card" id="gameOver" style="display:none;">
+    <h1>انتهت اللعبة</h1>
+    <div class="row">
+      <div class="pill">النقاط: <strong id="finalScore">0</strong></div>
+      <div class="pill">الزمن: <strong id="finalTime">0.0</strong>s</div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div class="pill">أعلى نتيجة: <strong id="bestScore2">0</strong></div>
+      <div class="pill">أفضل زمن: <strong id="bestTime2">0.0</strong>s</div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="againBtn">جولة جديدة</button>
+      <button class="ghost" id="menuBtn">القائمة الرئيسية</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ===== Utilities =====
+  const $ = s => document.querySelector(s);
+  const canvas = $('#canvas'), ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
+  const hudScore = $('#score'), hudTime = $('#time'), shieldDot = $('#shieldDot'), slowDot = $('#slowDot');
+  const overlay = $('#overlay'), menu = $('#menu'), gameOverCard = $('#gameOver');
+  const startBtn = $('#startBtn'), againBtn = $('#againBtn'), menuBtn = $('#menuBtn'), pauseBtn = $('#pauseBtn'), soundBtn = $('#soundBtn');
+  const bestScoreEl = $('#bestScore'), bestTimeEl = $('#bestTime'), bestScore2El = $('#bestScore2'), bestTime2El = $('#bestTime2');
+  const finalScoreEl = $('#finalScore'), finalTimeEl = $('#finalTime'), resetBest = $('#resetBest');
+  const leftBtn = $('#leftBtn'), rightBtn = $('#rightBtn');
+
+  // ===== Storage =====
+  const store = {
+    get(key, d) { try { return JSON.parse(localStorage.getItem(key)) ?? d; } catch { return d; } },
+    set(key, v) { localStorage.setItem(key, JSON.stringify(v)); }
+  };
+  let BEST = store.get('dtb_best', { score:0, time:0 });
+  let SOUND_ON = store.get('dtb_sound', true);
+
+  // ===== Audio (WebAudio generated tones) =====
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = new AudioCtx();
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (!audioUnlocked) {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination); g.gain.value = 0; o.start();
+      setTimeout(()=>{o.stop();},10);
+      audioUnlocked = true;
+    }
+  }
+  function beep(freq=440, dur=0.08, type='sine', vol=0.08) {
+    if (!SOUND_ON) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.value = vol;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur); }, 0);
+    setTimeout(()=>{ o.stop(); }, dur*1000 + 20);
+  }
+  function clickTone(){ beep(660, .05, 'square', .07); }
+  function scoreTone(){ beep(880, .06, 'triangle', .06); }
+  function hitTone(){ beep(180, .12, 'sawtooth', .1); }
+  function powerTone(){ beep(520, .1, 'triangle', .08); }
+
+  // ===== Vibration helper =====
+  function vib(ms=20){ if (navigator.vibrate) try{ navigator.vibrate(ms);}catch{} }
+
+  // ===== Canvas sizing (DPR aware) =====
+  function resize() {
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const w = Math.floor(window.innerWidth);
+    const h = Math.floor(window.innerHeight);
+    canvas.style.width = w+'px'; canvas.style.height = h+'px';
+    canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize, { passive:true });
+  resize();
+
+  // ===== Game State =====
+  let running = false, paused = false, gameOver = false;
+  let time = 0, score = 0, best = BEST, shield = 0, slowMo = 0;
+  let player = { x:0, y:0, w:56, h:56, speed: 480 /* px/s */ };
+  let blocks = [], particles = [], powerups = []; // powerups types: 'shield','slow'
+  let spawnTimer = 0, spawnInterval = 0.9; // seconds (will scale)
+  let powerTimer = 0, powerInterval = 6.0;
+
+  function resetGame() {
+    score = 0; time = 0; shield = 0; slowMo = 0;
+    blocks.length = 0; particles.length = 0; powerups.length = 0;
+    player.w = 56; player.h = 56; player.x = canvas.width/2; player.y = canvas.height - player.h - 28;
+    spawnTimer = 0; spawnInterval = 0.9; powerTimer = 0;
+    updateHUD();
+  }
+
+  // ===== Spawners =====
+  function spawnBlock() {
+    // block size and speed scale with time
+    const w = 36 + Math.random()*34;
+    const h = 28 + Math.random()*30;
+    const x = Math.random() * (canvas.width - w);
+    const speed = 220 + Math.min(420, time*12) + Math.random()*80; // scale by time
+    const color = Math.random() < 0.1 ? '#ff7a7a' : '#ff5252';
+    blocks.push({ x, y:-h, w, h, vy:speed, color });
+  }
+  function spawnPowerup() {
+    const type = Math.random() < 0.5 ? 'shield' : 'slow';
+    const size = 28;
+    const x = Math.random() * (canvas.width - size);
+    const vy = 150 + Math.random()*80;
+    powerups.push({ x, y:-size, w:size, h:size, vy, type, t:0 });
+  }
+
+  // ===== Input: keyboard + touch/drag + on-screen buttons =====
+  let keyLeft=false, keyRight=false;
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a') keyLeft = true;
+    if (e.key === 'ArrowRight' || e.key === 'd') keyRight = true;
+    if (e.key === ' ' || e.key === 'Enter') {
+      if (!running) startGame();
+      else togglePause();
+    }
+  });
+  document.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a') keyLeft = false;
+    if (e.key === 'ArrowRight' || e.key === 'd') keyRight = false;
+  });
+
+  let dragActive=false, lastX=0;
+  canvas.addEventListener('pointerdown', e => { unlockAudio(); dragActive=true; lastX = e.clientX; });
+  window.addEventListener('pointerup', () => dragActive=false);
+  window.addEventListener('pointermove', e => {
+    if (!dragActive) return;
+    const dx = e.clientX - lastX;
+    player.x += dx;
+    clampPlayer();
+    lastX = e.clientX;
+  }, { passive:true });
+
+  function holdDir(dir, on) { if (dir<0) keyLeft = on; else keyRight = on; }
+  leftBtn.addEventListener('pointerdown', ()=> holdDir(-1,true));
+  leftBtn.addEventListener('pointerup',   ()=> holdDir(-1,false));
+  leftBtn.addEventListener('pointerleave',()=> holdDir(-1,false));
+  rightBtn.addEventListener('pointerdown',()=> holdDir(1,true));
+  rightBtn.addEventListener('pointerup',  ()=> holdDir(1,false));
+  rightBtn.addEventListener('pointerleave',()=> holdDir(1,false));
+
+  // ===== HUD / Overlay =====
+  function showMenu() {
+    overlay.style.display = 'flex';
+    menu.style.display = '';
+    gameOverCard.style.display = 'none';
+    bestScoreEl.textContent = String(best.score);
+    bestTimeEl.textContent = best.time.toFixed(1);
+  }
+  function showGameOver() {
+    overlay.style.display = 'flex';
+    menu.style.display = 'none';
+    gameOverCard.style.display = '';
+    finalScoreEl.textContent = String(score);
+    finalTimeEl.textContent = time.toFixed(1);
+    bestScore2El.textContent = String(best.score);
+    bestTime2El.textContent = best.time.toFixed(1);
+  }
+  function hideOverlay() { overlay.style.display = 'none'; }
+
+  startBtn.addEventListener('click', () => { clickTone(); startGame(); });
+  againBtn.addEventListener('click', () => { clickTone(); startGame(); });
+  menuBtn.addEventListener('click', () => { clickTone(); showMenu(); });
+  pauseBtn.addEventListener('click', () => { clickTone(); togglePause(); });
+  resetBest.addEventListener('click', () => {
+    BEST = best = { score:0, time:0 }; store.set('dtb_best', best);
+    bestScoreEl.textContent = '0'; bestTimeEl.textContent = '0.0';
+  });
+  soundBtn.addEventListener('click', () => {
+    SOUND_ON = !SOUND_ON; store.set('dtb_sound', SOUND_ON);
+    soundBtn.textContent = 'صوت: ' + (SOUND_ON ? 'تشغيل' : 'إيقاف');
+    if (SOUND_ON) beep(900, .05, 'square', .04);
+  });
+  soundBtn.textContent = 'صوت: ' + (SOUND_ON ? 'تشغيل' : 'إيقاف');
+
+  function togglePause() {
+    if (!running || gameOver) return;
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'استئناف' : 'إيقاف';
+    if (!paused) lastTS = performance.now(); // resync delta
+  }
+
+  function updateHUD() {
+    hudScore.textContent = String(score);
+    hudTime.textContent = time.toFixed(1);
+    shieldDot.style.background = shield > 0 ? 'var(--accent)' : 'rgba(255,255,255,.25)';
+    slowDot.style.background = slowMo > 0 ? 'var(--gold)' : 'rgba(255,255,255,.25)';
+  }
+
+  // ===== Mechanics =====
+  function clampPlayer() {
+    const maxX = canvas.width - player.w;
+    if (player.x < 0) player.x = 0;
+    if (player.x > maxX) player.x = maxX;
+  }
+  function rectsOverlap(a,b) {
+    return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h);
+  }
+  function addParticles(x,y,color='#fff', n=10) {
+    for (let i=0;i<n;i++){
+      const ang = Math.random()*Math.PI*2;
+      const spd = 80 + Math.random()*220;
+      particles.push({ x, y, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, life: .5 + Math.random()*0.4, color });
+    }
+  }
+
+  // ===== Render =====
+  function clearBg() {
+    // subtle gradient
+    const g = ctx.createLinearGradient(0,0,0,canvas.height);
+    g.addColorStop(0, '#10121a'); g.addColorStop(1, '#0d0f14');
+    ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+  function drawPlayer() {
+    ctx.save();
+    ctx.fillStyle = shield>0 ? '#12f7d6' : '#2fff7f';
+    const r = 12;
+    roundRect(ctx, player.x, player.y, player.w, player.h, r);
+    ctx.fill();
+    if (shield>0){
+      ctx.strokeStyle = 'rgba(18,247,214,0.6)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(player.x-3, player.y-3, player.w+6, player.h+6);
+    }
+    ctx.restore();
+  }
+  function drawBlocks() {
+    for (const b of blocks) {
+      ctx.fillStyle = b.color;
+      roundRect(ctx, b.x, b.y, b.w, b.h, 8);
+      ctx.fill();
+    }
+  }
+  function drawPowerups() {
+    for (const p of powerups) {
+      ctx.save();
+      p.t += 0.02;
+      ctx.translate(p.x + p.w/2, p.y + p.h/2);
+      ctx.rotate(Math.sin(p.t)*0.2);
+      ctx.fillStyle = p.type==='shield' ? '#12f7d6' : '#ffc857';
+      roundRect(ctx, -p.w/2, -p.h/2, p.w, p.h, 8);
+      ctx.fill();
+      ctx.fillStyle = '#051e12';
+      ctx.font = 'bold 16px system-ui';
+      ctx.textAlign = 'center'; ctx.textBaseline='middle';
+      ctx.fillText(p.type==='shield' ? 'S' : '⏳', 0, 1);
+      ctx.restore();
+    }
+  }
+  function drawParticles(dt) {
+    for (let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.life -= dt;
+      if (p.life <= 0) { particles.splice(i,1); continue; }
+      p.x += p.vx*dt; p.y += p.vy*dt;
+      ctx.globalAlpha = Math.max(0, p.life*1.8);
+      ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 3, 3);
+      ctx.globalAlpha = 1;
+    }
+  }
+  function roundRect(ctx, x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  // ===== Game loop =====
+  let lastTS = performance.now();
+  function loop(ts) {
+    if (!running) return;
+    requestAnimationFrame(loop);
+    if (paused) return;
+
+    let dt = (ts - lastTS) / 1000;
+    if (dt > 0.05) dt = 0.05; // clamp
+    lastTS = ts;
+
+    const slowFactor = slowMo>0 ? 0.45 : 1;
+    const simDt = dt * slowFactor;
+
+    // Update timers
+    time += dt;
+    spawnTimer -= dt;
+    powerTimer -= dt;
+    if (slowMo>0) { slowMo -= dt; if (slowMo<0) slowMo=0; }
+    updateHUD();
+
+    // Dynamic difficulty: gradually increase spawn rate
+    const targetInterval = Math.max(0.35, 0.9 - time*0.01);
+    spawnInterval += (targetInterval - spawnInterval) * 0.02;
+
+    if (spawnTimer <= 0) { spawnBlock(); spawnTimer = spawnInterval; }
+    if (powerTimer <= 0) { spawnPowerup(); powerTimer = 5.5 + Math.random()*3; }
+
+    // Move player
+    let moveDir = (keyRight?1:0) - (keyLeft?1:0);
+    player.x += moveDir * player.speed * simDt;
+    clampPlayer();
+
+    // Update blocks
+    for (let i=blocks.length-1;i>=0;i--){
+      const b = blocks[i];
+      b.y += b.vy * simDt;
+      if (b.y > canvas.height + 80) { blocks.splice(i,1); score += 1; scoreTone(); continue; }
+      if (rectsOverlap(player, b)) {
+        if (shield>0) {
+          shield = 0; addParticles(player.x+player.w/2, player.y+player.h/2, '#12f7d6', 18);
+          powerTone();
+          blocks.splice(i,1);
+        } else {
+          // hit
+          hitTone(); vib(35);
+          return doGameOver();
+        }
+      }
+    }
+
+    // Update powerups
+    for (let i=powerups.length-1;i>=0;i--){
+      const p = powerups[i];
+      p.y += p.vy * simDt;
+      if (p.y > canvas.height + 80) { powerups.splice(i,1); continue; }
+      if (rectsOverlap(player, p)) {
+        if (p.type==='shield') { shield = 1; }
+        else if (p.type==='slow') { slowMo = 4.0; }
+        addParticles(p.x+p.w/2, p.y+p.h/2, p.type==='shield' ? '#12f7d6' : '#ffc857', 16);
+        powerTone();
+        powerups.splice(i,1);
+      }
+    }
+
+    // Render
+    clearBg();
+    drawBlocks();
+    drawPowerups();
+    drawPlayer();
+    drawParticles(simDt);
+  }
+
+  // ===== Lifecycle =====
+  function startGame() {
+    audioCtx.resume().catch(()=>{});
+    unlockAudio();
+    running = true; paused = false; gameOver = false;
+    pauseBtn.textContent = 'إيقاف';
+    hideOverlay();
+    resetGame();
+    lastTS = performance.now();
+    requestAnimationFrame(loop);
+  }
+  function doGameOver() {
+    gameOver = true; running = false;
+    // Update bests
+    if (score > best.score) best.score = score;
+    if (time > best.time) best.time = time;
+    store.set('dtb_best', best);
+    BEST = best;
+    setTimeout(() => {
+      finalScoreEl.textContent = String(score);
+      finalTimeEl.textContent = time.toFixed(1);
+      bestScore2El.textContent = String(best.score);
+      bestTime2El.textContent = best.time.toFixed(1);
+      showGameOver();
+    }, 80);
+  }
+
+  // Init
+  showMenu();
+})();
+</script>
+</body>
+</html>
